@@ -900,7 +900,7 @@ class Subscriber(Discoverable[EntityType]):
                 # will subscribe to the command topic
                 # when the externally created MQTT client connects
                 pass
-        else :
+        else:
             # Manually connect the MQTT client
             self._connect_client()
 
