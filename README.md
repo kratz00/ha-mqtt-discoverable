@@ -122,11 +122,8 @@ settings = Settings(mqtt=mqtt_settings, entity=button_info)
 def my_callback(client: Client, user_data, message: MQTTMessage):
     perform_my_custom_action()
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
 # Instantiate the button
-my_button = Button(settings, my_callback, user_data)
+my_button = Button(settings, my_callback)
 
 # Publish the button's discoverability message to let HA automatically notice it
 my_button.write_config()
@@ -154,11 +151,8 @@ def my_callback(client: Client, user_data, message: MQTTMessage):
     payload = message.payload.decode()
     perform_my_custom_action()
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
 # Instantiate the cover
-my_camera = Camera(settings, my_callback, user_data)
+my_camera = Camera(settings, my_callback)
 
 # Set the initial state of the cover, which also makes it discoverable
 my_camera.set_topic("zanzito/shared_locations/my-device")  # not needed if already defined
@@ -209,11 +203,8 @@ def my_callback(client: Client, user_data, message: MQTTMessage):
         # Let HA know that the cover was stopped
         my_cover.stopped()
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
 # Instantiate the cover
-my_cover = Cover(settings, my_callback, user_data)
+my_cover = Cover(settings, my_callback)
 
 # Set the initial state of the cover, which also makes it discoverable
 my_cover.closed()
@@ -292,7 +283,7 @@ mytrigger.trigger("My custom payload")
 
 ### Image
 
-The following example creates an entity to an image url.
+The following example creates an image entity to an image url.
 
 ```py
 from ha_mqtt_discoverable import Settings
@@ -302,8 +293,7 @@ from ha_mqtt_discoverable.sensors import Image, ImageInfo
 mqtt_settings = Settings.MQTT(host="localhost")
 
 # Information about the image
-image_info = ImageInfo(name="test", url_topic="topic_to_publish_url_to")
-
+image_info = ImageInfo(name="test", url_topic="topic_to_publish_image_url_to")
 settings = Settings(mqtt=mqtt_settings, entity=image_info)
 
 # Instantiate the image
@@ -311,6 +301,30 @@ my_image = Image(settings)
 
 # Publish an image URL to url_topic
 my_image.set_url("http://camera.local/latest.jpg")
+```
+
+The following example creates an image entity and sets the base64 encoded payload.
+
+```py
+from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable.sensors import Image, ImageInfo
+from base64 import b64encode
+
+# Configure the required parameters for the MQTT broker
+mqtt_settings = Settings.MQTT(host="localhost")
+
+# Information about the image
+image_info = ImageInfo(name="test", image_topic="topic_to_publish_image_payload_to",
+                       image_encoding="b64", content_type="image/png")
+settings = Settings(mqtt=mqtt_settings, entity=image_info)
+
+# Instantiate the image
+my_image = Image(settings)
+
+# Set the image payload
+with open("example.png", "rb") as example_file:
+    example_blob = b64encode(example_file.read())
+    my_image.set_payload(example_blob)
 ```
 
 ### Light
@@ -370,11 +384,8 @@ def my_callback(client: Client, user_data, message: MQTTMessage):
     else:
         print("Unknown payload")
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
 # Instantiate the light
-my_light = Light(settings, my_callback, user_data)
+my_light = Light(settings, my_callback)
 
 # Set the initial state of the light, which also makes it discoverable
 my_light.off()
@@ -407,11 +418,9 @@ def my_callback(client: Client, user_data, message: MQTTMessage):
     # Send an MQTT message to confirm to HA that the number was changed
     my_number.set_value(number)
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
 
 # Instantiate the number
-my_number = Number(settings, my_callback, user_data)
+my_number = Number(settings, my_callback)
 
 # Set the initial number displayed in HA UI, publishing an MQTT message that gets picked up by HA
 my_number.set_value(42.0)
@@ -440,15 +449,14 @@ def my_callback(client: Client, user_data, message: MQTTMessage):
     payload = message.payload.decode()
     do_something()
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
 # Instantiate the selection
-my_selection = Select(settings, my_callback, user_data)
+my_selection = Select(settings, my_callback)
 
-# Set the initial state of the selection, which also makes it discoverable
-opt = ["option3", "option4", "option5"]
-my_selection.set_options(opt)
+# Publish the select's discovery message to let HA automatically notice it
+my_selection.write_config()
+
+# Or select the initial option of the selection, which also makes it discoverable
+my_selection.select_option("option1")
 ```
 
 ### Sensor
@@ -509,11 +517,8 @@ def my_callback(client: Client, user_data, message: MQTTMessage):
         # Let HA know that the switch was successfully deactivated
         my_switch.off()
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
 # Instantiate the switch
-my_switch = Switch(settings, my_callback, user_data)
+my_switch = Switch(settings, my_callback)
 
 # Set the initial state of the switch, which also makes it discoverable
 my_switch.off()
@@ -546,11 +551,8 @@ def my_callback(client: Client, user_data, message: MQTTMessage):
     # Send an MQTT message to confirm to HA that the text was changed
     my_text.set_text(text)
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
 # Instantiate the text
-my_text = Text(settings, my_callback, user_data)
+my_text = Text(settings, my_callback)
 
 # Set the initial text displayed in HA UI, publishing an MQTT message that gets picked up by HA
 my_text.set_text("Some awesome text")

@@ -17,10 +17,11 @@ import logging
 import ssl
 from collections.abc import Callable
 from importlib import metadata
-from typing import Any, Generic, Optional, TypeVar, Union
+from typing import Any, Generic, TypeVar, Union
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.client import MQTTMessageInfo
+from paho.mqtt.enums import CallbackAPIVersion
 from pydantic import BaseModel, ConfigDict, model_validator
 
 # Read version from the package metadata
@@ -471,21 +472,23 @@ class DeviceInfo(BaseModel):
     """Information about a device a sensor belongs to"""
 
     name: str
-    model: Optional[str] = None
-    manufacturer: Optional[str] = None
-    sw_version: Optional[str] = None
+    model: str | None = None
+    manufacturer: str | None = None
+    sw_version: str | None = None
     """Firmware version of the device"""
-    hw_version: Optional[str] = None
+    hw_version: str | None = None
     """Hardware version of the device"""
-    identifiers: Optional[list[str] | str] = None
+    identifiers: list[str] | str | None = None
     """A list of IDs that uniquely identify the device. For example a serial number."""
-    connections: Optional[list[tuple]] = None
+    connections: list[tuple] | None = None
     """A list of connections of the device to the outside world as a list of tuples\
         [connection_type, connection_identifier]"""
-    configuration_url: Optional[str] = None
+    configuration_url: str | None = None
     """A link to the webpage that can manage the configuration of this device.
         Can be either an HTTP or HTTPS link."""
-    via_device: Optional[str] = None
+    suggested_area: str | None = None
+    """The suggested name for the area where the device is located."""
+    via_device: str | None = None
     """Identifier of a device that routes messages between this device and Home
         Assistant. Examples of such devices are hubs, or parent devices of a sub-device.
         This is used to show device topology in Home Assistant."""
@@ -503,30 +506,30 @@ class EntityInfo(BaseModel):
     component: str
     """One of the supported MQTT components, for instance `binary_sensor`"""
     """Information about the sensor"""
-    device: Optional[DeviceInfo] = None
+    device: DeviceInfo | None = None
     """Information about the device this sensor belongs to"""
-    device_class: Optional[str] = None
+    device_class: str | None = None
     """Sets the class of the device, changing the device state and icon that is
         displayed on the frontend."""
-    enabled_by_default: Optional[bool] = None
+    enabled_by_default: bool | None = None
     """Flag which defines if the entity should be enabled when first added."""
-    entity_category: Optional[str] = None
+    entity_category: str | None = None
     """Classification of a non-primary entity."""
-    expire_after: Optional[int] = None
+    expire_after: int | None = None
     """If set, it defines the number of seconds after the sensor’s state expires,
         if it’s not updated. After expiry, the sensor’s state becomes unavailable.
             Default the sensors state never expires."""
-    force_update: Optional[bool] = None
+    force_update: bool | None = None
     """Sends update events even if the value hasn’t changed.\
     Useful if you want to have meaningful value graphs in history."""
-    icon: Optional[str] = None
+    icon: str | None = None
     name: str
     """Name of the sensor inside Home Assistant"""
-    object_id: Optional[str] = None
+    object_id: str | None = None
     """Set this to generate the `entity_id` in HA instead of using `name`"""
-    qos: Optional[int] = None
+    qos: int | None = None
     """The maximum QoS level to be used when receiving messages."""
-    unique_id: Optional[str] = None
+    unique_id: str | None = None
     """Set this to enable editing sensor from the HA ui and to integrate with a
         device"""
 
@@ -550,22 +553,22 @@ class Settings(BaseModel, Generic[EntityType]):
         # To use mqtt.Client
         model_config = ConfigDict(arbitrary_types_allowed=True)
 
-        host: Optional[str] = "homeassistant"
-        port: Optional[int] = 1883
-        username: Optional[str] = None
-        password: Optional[str] = None
-        client_name: Optional[str] = None
-        use_tls: Optional[bool] = False
-        tls_key: Optional[str] = None
-        tls_certfile: Optional[str] = None
-        tls_ca_cert: Optional[str] = None
+        host: str | None = "homeassistant"
+        port: int | None = 1883
+        username: str | None = None
+        password: str | None = None
+        client_name: str | None = None
+        use_tls: bool | None = False
+        tls_key: str | None = None
+        tls_certfile: str | None = None
+        tls_ca_cert: str | None = None
 
         discovery_prefix: str = "homeassistant"
         """The root of the topic tree where HA is listening for messages"""
         state_prefix: str = "hmd"
         """The root of the topic tree ha-mqtt-discovery publishes its state messages"""
 
-        client: Optional[mqtt.Client] = None
+        client: mqtt.Client | None = None
         """Optional MQTT client to use for the connection. If provided, most other settings are ignored."""
 
     mqtt: MQTT
@@ -595,7 +598,7 @@ class Discoverable(Generic[EntityType]):
     availability_topic: str
     attributes_topic: str
 
-    def __init__(self, settings: Settings[EntityType], on_connect: Optional[Callable] = None) -> None:
+    def __init__(self, settings: Settings[EntityType], on_connect: Callable | None = None) -> None:
         """
         Creates a basic discoverable object.
 
@@ -663,17 +666,20 @@ wrote_configuration: {self.wrote_configuration}
         """
         return dump
 
-    def _setup_client(self, on_connect: Optional[Callable] = None) -> None:
+    def _setup_client(self, on_connect: Callable | None = None) -> None:
         """Create an MQTT client and setup some basic properties on it"""
 
         # If the user has passed in an MQTT client, use it
         if self._settings.mqtt.client:
             self.mqtt_client = self._settings.mqtt.client
+            if on_connect:
+                logger.debug("Registering custom callback function")
+                self.mqtt_client.on_connect = on_connect
             return
 
         mqtt_settings = self._settings.mqtt
         logger.debug(f"Creating mqtt client ({mqtt_settings.client_name}) for {mqtt_settings.host}:{mqtt_settings.port}")
-        self.mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2, client_id=mqtt_settings.client_name)
+        self.mqtt_client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION2, client_id=mqtt_settings.client_name)
         if mqtt_settings.tls_key:
             logger.info(f"Connecting to {mqtt_settings.host}:{mqtt_settings.port} with SSL and client certificate authentication")
             logger.debug(f"ca_certs={mqtt_settings.tls_ca_cert}")
@@ -714,9 +720,9 @@ wrote_configuration: {self.wrote_configuration}
             self.mqtt_client.will_set(self.availability_topic, "offline", retain=True)
 
     def _connect_client(self) -> None:
-        """Connect the client to the MQTT broker, start its onw internal loop in
+        """Connect the client to the MQTT broker, start its own internal loop in
         a separate thread"""
-        result = self.mqtt_client.connect(self._settings.mqtt.host, self._settings.mqtt.port or 1883)
+        result = self.mqtt_client.connect(self._settings.mqtt.host, self._settings.mqtt.port)
         # Check if we have established a connection
         if result != mqtt.MQTT_ERR_SUCCESS:
             raise RuntimeError("Error while connecting to MQTT broker")
@@ -726,8 +732,8 @@ wrote_configuration: {self.wrote_configuration}
         self.mqtt_client.loop_start()
 
     def _state_helper(
-        self, state: Optional[Union[str, float, int]], topic: Optional[str] = None, last_reset: Optional[str] = None, retain=True
-    ) -> Optional[MQTTMessageInfo]:
+        self, state: Union[str, float, int] | None, topic: str | None = None, last_reset: str | None = None, retain=True
+    ) -> MQTTMessageInfo | None:
         """
         Write a state to the given MQTT topic, returning the result of client.publish()
         """
@@ -856,7 +862,6 @@ class Subscriber(Discoverable[EntityType]):
         self,
         settings: Settings[EntityType],
         command_callback: Callable[[mqtt.Client, T, mqtt.MQTTMessage], Any],
-        user_data: T = None,
     ) -> None:
         """
         Entity that listens to commands from an MQTT topic.
@@ -870,7 +875,6 @@ class Subscriber(Discoverable[EntityType]):
 
         # Callback invoked when the MQTT connection is established
         def on_client_connected(client: mqtt.Client, *args):
-            # Publish this button in Home Assistant
             # Subscribe to the command topic
             result, _ = client.subscribe(self._command_topic, qos=1)
             if result is not mqtt.MQTT_ERR_SUCCESS:
@@ -881,12 +885,24 @@ class Subscriber(Discoverable[EntityType]):
         # Define the command topic to receive commands from HA, using `hmd` topic prefix
         self._command_topic = f"{self._settings.mqtt.state_prefix}/{self._entity_topic}/command"
 
-        # Register the user-supplied callback function with its user_data
-        self.mqtt_client.user_data_set(user_data)
+        # Register the user-supplied callback function
         self.mqtt_client.on_message = command_callback
 
-        # Manually connect the MQTT client
-        self._connect_client()
+        if self._settings.mqtt.client:
+            # externally created MQTT client is used
+            if self.mqtt_client.is_connected():
+                # MQTT client is already connected, therefor explicitly
+                # subscribe to the command topic
+                on_client_connected(self.mqtt_client)
+            else:
+                # externally created MQTT client is not connected yet
+                # the 'on_connect' callback named 'on_client_connected'
+                # will subscribe to the command topic
+                # when the externally created MQTT client connects
+                pass
+        else:
+            # Manually connect the MQTT client
+            self._connect_client()
 
     def generate_config(self) -> dict[str, Any]:
         """Override base config to add the command topic of this switch"""

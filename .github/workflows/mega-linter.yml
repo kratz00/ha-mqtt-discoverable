@@ -11,10 +11,6 @@ name: Lint Code Base
 # https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions
 #
 
-permissions:
-  issues: write
-  pull-requests: write
-
 #############################
 # Start the job on all push #
 #############################
@@ -43,7 +39,7 @@ jobs:
       # Checkout the code base #
       ##########################
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Full git history is needed to get a proper list of changed files
           # within `mega-linter`
@@ -53,7 +49,7 @@ jobs:
       # Run Linter against code base #
       ################################
       - name: Lint Code Base
-        uses: oxsecurity/megalinter/flavors/python@v8
+        uses: oxsecurity/megalinter/flavors/python@v9
         env:
           DOCKERFILE_HADOLINT_DISABLE_ERRORS: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
