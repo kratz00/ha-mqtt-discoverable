@@ -19,23 +19,37 @@ from ha_mqtt_discoverable import Settings
 from ha_mqtt_discoverable.sensors import Light, LightInfo
 
 # Test data
-color_modes = ["rgb", "rgbw"]
-effects = ["rainbow", "mycustomeffect"]
+COLOR_MODES = ["rgb", "rgbw"]
+EFFECTS = ["rainbow", "my_custom_effect"]
 
 
 @pytest.fixture
-def light() -> Light:
+def make_light():
+    def _make_light(color_mode: bool | None = None, effect: bool | None = None):
+        """Return a light instance"""
+        mqtt_settings = Settings.MQTT(host="localhost")
+        sensor_info = LightInfo(
+            name="test",
+            color_mode=color_mode,
+            supported_color_modes=COLOR_MODES,
+            effect=effect,
+            effect_list=EFFECTS,
+        )
+        settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
+        return Light(settings, lambda _, __, ___: None)
+
+    return _make_light
+
+
+@pytest.fixture
+def light_no_color_mode_and_effect_support(make_light) -> Light:
+    return make_light()
+
+
+@pytest.fixture
+def light(make_light) -> Light:
     """Return a light instance"""
-    mqtt_settings = Settings.MQTT(host="localhost")
-    sensor_info = LightInfo(
-        name="test",
-        color_mode=True,
-        supported_color_modes=color_modes,
-        effect=True,
-        effect_list=effects,
-    )
-    settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
-    return Light(settings, lambda *_: None)
+    return make_light(color_mode=True, effect=True)
 
 
 def test_required_config():
@@ -43,7 +57,7 @@ def test_required_config():
     mqtt_settings = Settings.MQTT(host="localhost")
     sensor_info = LightInfo(name="test")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
-    sensor = Light(settings, lambda *_: None)
+    sensor = Light(settings, lambda _, __, ___: None)
     assert sensor is not None
 
 
@@ -66,7 +80,7 @@ def test_brightness_out_of_range(light: Light, brightness):
         light.brightness(brightness)
 
 
-@pytest.mark.parametrize("color_modes", color_modes)
+@pytest.mark.parametrize("color_modes", COLOR_MODES)
 def test_color(light: Light, color_modes):
     """Test to set the color"""
     light.color(color_modes, {"test": 123})
@@ -78,7 +92,7 @@ def test_color_unsupported(light: Light):
         light.color("test", {"r": 255, "g": 255, "b": 255})
 
 
-@pytest.mark.parametrize("effects", effects)
+@pytest.mark.parametrize("effects", EFFECTS)
 def test_effect(light: Light, effects):
     """Test to enable effect"""
     light.effect(effects)
@@ -86,5 +100,19 @@ def test_effect(light: Light, effects):
 
 def test_effect_unsupported(light: Light):
     """Test to make sure we can't use unsupported effects"""
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="Effect is not within configured effect_list"):
         light.effect("unsupported_effect")
+
+
+def test_effects_unsupported(light_no_color_mode_and_effect_support: Light):
+    """Test to make sure we can't set effects if unsupported"""
+
+    with pytest.raises(RuntimeError, match="does not support effects"):
+        light_no_color_mode_and_effect_support.effect("rainbow")
+
+
+def test_color_mode_unsupported(light_no_color_mode_and_effect_support: Light):
+    """Test to make sure we can't set color modes if unsupported"""
+
+    with pytest.raises(RuntimeError, match="does not support setting color"):
+        light_no_color_mode_and_effect_support.color("rgb", {"test": 123})

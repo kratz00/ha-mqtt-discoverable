@@ -270,19 +270,18 @@ class CameraInfo(EntityInfo):
 
     component: str = "camera"
     """The component type is 'camera' for this entity."""
-    availability_topic: str | None = None
-    """The MQTT topic subscribed to publish the camera availability."""
-    payload_available: str | None = "online"
-    """Payload to publish to indicate the camera is online."""
-    payload_not_available: str | None = "offline"
-    """Payload to publish to indicate the camera is offline."""
-    topic: str | None = None
+    topic: str
     """
-    The MQTT topic to subscribe to receive an image URL. A url_template option can extract the URL from the message.
-    The content_type will be derived from the image when downloaded.
+    The MQTT topic to subscribe to receive the image payloads.
     """
     retain: bool | None = None
     """If the published message should have the retain flag on or not."""
+    image_encoding: Literal["b64"] | None = None
+    """
+    The encoding of the image payloads received.
+    Set to "b64" to enable base64 decoding of image payload.
+    If not set, the image payload must be raw binary data.
+    """
 
 
 class ImageInfo(EntityInfo):
@@ -332,7 +331,7 @@ class ImageInfo(EntityInfo):
         # Don't set image_topic and url_topic at the same time.
         if self.image_topic and self.url_topic:
             raise ValueError(
-                "URL and Image payload sending cannot be used at the same time.Set only one of 'image_topic' or 'url_topic'"
+                "URL and Image payload sending cannot be used at the same time. Set only one of 'image_topic' or 'url_topic'"
             )
 
         # Don't set image_encoding and url_topic at the same time.
@@ -365,6 +364,37 @@ class SelectInfo(EntityInfo):
     """The MQTT topic subscribed to receive state updates."""
     options: list | None = None
     """List of options that can be selected. An empty list or a list with a single item is allowed."""
+
+
+class LockInfo(EntityInfo):
+    """
+    Information about the 'lock' entity.
+    """
+
+    component: str = "lock"
+    optimistic: bool | None = None
+    """Flag that defines if lock works in optimistic mode.
+    Default: true if no state_topic defined, else false."""
+    retain: bool = True
+    """If the published message should have the retain flag on or not"""
+    state_topic: str | None = None
+    """The MQTT topic subscribed to receive state updates."""
+
+    payload_lock: str = "LOCK"
+    """Command payload to lock the lock"""
+    payload_unlock: str = "UNLOCK"
+    """Command payload to unlock the lock"""
+
+    state_locked: str = "LOCKED"
+    """The payload sent to state_topic by the lock when it’s locked."""
+    state_locking: str = "LOCKING"
+    """The payload sent to state_topic by the lock when it’s locking."""
+    state_unlocked: str = "UNLOCKED"
+    """The payload sent to state_topic by the lock when it’s unlocked."""
+    state_unlocking: str = "UNLOCKING"
+    """The payload sent to state_topic by the lock when it’s unlocking."""
+    state_jammed: str = "JAMMED"
+    """The payload sent to state_topic by the lock when it’s jammed."""
 
 
 class BinarySensor(Discoverable[BinarySensorInfo]):
@@ -550,7 +580,6 @@ class Cover(Subscriber[CoverInfo]):
         Args:
             state(str): What state to set the cover to
         """
-        print("State: " + state)
         logger.info(f"Setting {self._entity.name} to {state} using {self.state_topic}")
         self._state_helper(state=state, topic=self.state_topic, retain=self._entity.retain)
 
@@ -628,35 +657,24 @@ class Number(Subscriber[NumberInfo]):
         self._state_helper(value)
 
 
-class Camera(Subscriber[CameraInfo]):
+class Camera(Discoverable[CameraInfo]):
     """
     Implements an MQTT camera for Home Assistant MQTT discovery:
-    https://www.home-assistant.io/integrations/image.mqtt/
+    https://www.home-assistant.io/integrations/camera.mqtt/
     """
 
-    def set_topic(self, image_topic: str) -> None:
+    def set_payload(self, image_payload: bytes | str) -> None:
         """
-        Update the camera state (image URL).
+        Update the image payload of the camera.
 
         Args:
-            image_topic (str): Topic of the image to be set as the camera state.
+            image_payload (bytes | str): image payload to be published to topic.
         """
-        if not image_topic:
-            raise RuntimeError("Image topic cannot be empty")
+        if not image_payload:
+            raise RuntimeError("Image payload of the camera cannot be empty")
 
-        logger.info(f"Publishing camera image topic {image_topic} to {self._entity.topic}")
-        self._state_helper(image_topic)
-
-    def set_availability(self, available: bool) -> None:
-        """
-        Update the camera availability status.
-
-        Args:
-            available (bool): Whether the camera is available or not.
-        """
-        payload = self._entity.payload_available if available else self._entity.payload_not_available
-        logger.info(f"Setting camera availability to {payload} using {self._entity.availability_topic}")
-        self.mqtt_client.publish(self._entity.availability_topic, payload, retain=self._entity.retain)
+        logger.info(f"Publishing image payload of the camera to {self._entity.topic}")
+        self._state_helper(image_payload, self._entity.topic)
 
 
 class Image(Discoverable[ImageInfo]):
@@ -713,3 +731,40 @@ class Select(Subscriber[SelectInfo]):
 
         logger.info(f"Changing selection of {self._entity.name} to {option} using {self.state_topic}")
         self._state_helper(option)
+
+
+class Lock(Subscriber[LockInfo]):
+    """
+    Implements a MQTT lock:
+    https://www.home-assistant.io/integrations/lock.mqtt/
+    """
+
+    def locking(self) -> None:
+        """Set lock state to locking"""
+        self._update_state(self._entity.state_locking)
+
+    def locked(self) -> None:
+        """Set lock state to locked"""
+        self._update_state(self._entity.state_locked)
+
+    def unlocking(self) -> None:
+        """Set lock state to unlocking"""
+        self._update_state(self._entity.state_unlocking)
+
+    def unlocked(self) -> None:
+        """Set lock state to unlocked"""
+        self._update_state(self._entity.state_unlocked)
+
+    def jammed(self) -> None:
+        """Set lock state to jammed"""
+        self._update_state(self._entity.state_jammed)
+
+    def _update_state(self, state: str) -> None:
+        """
+        Update MQTT lock state
+
+        Args:
+            state(str): What state to set the lock to
+        """
+        logger.info(f"Setting {self._entity.name} to {state} using {self.state_topic}")
+        self._state_helper(state=state, topic=self.state_topic, retain=self._entity.retain)

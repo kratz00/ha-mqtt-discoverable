@@ -4,10 +4,12 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![GitHub last commit (branch)](https://img.shields.io/github/last-commit/unixorn/ha-mqtt-discoverable/main.svg)](https://github.com/unixorn/ha-mqtt-discoverable)
 [![Downloads](https://static.pepy.tech/badge/ha-mqtt-discoverable)](https://pepy.tech/project/ha-mqtt-discoverable)
+[![Coverage badge](https://raw.githubusercontent.com/unixorn/ha-mqtt-discoverable/python-coverage-comment-action-data/badge.svg)](https://htmlpreview.github.io/?https://github.com/unixorn/ha-mqtt-discoverable/blob/python-coverage-comment-action-data/htmlcov/index.html)
 
 A Python 3 module that takes advantage of Home Assistant's [MQTT discovery protocol](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery) to create sensors without having to define anything on the HA side.
 
-Using MQTT discoverable devices lets us add new sensors and devices to HA without having to restart HA. The [ha-mqtt-discoverable-cli](https://github.com/unixorn/ha-mqtt-discoverable-cli/) module includes scripts to make it easy to create discoverable devices from the command line if you don't want to bother writing Python.
+Using MQTT discoverable devices lets us add new sensors and devices to HA without having to restart HA.
+The [ha-mqtt-discoverable-cli](https://github.com/unixorn/ha-mqtt-discoverable-cli/) module includes scripts to make it easy to create discoverable devices from the command line if you don't want to bother writing Python.
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
@@ -19,11 +21,12 @@ Using MQTT discoverable devices lets us add new sensors and devices to HA withou
   - [Binary sensor](#binary-sensor)
   - [Button](#button)
   - [Camera](#camera)
-  - [Covers](#covers)
+  - [Cover](#cover)
   - [Device](#device)
   - [Device trigger](#device-trigger)
   - [Image](#image)
   - [Light](#light)
+  - [Lock](#lock)
   - [Number](#number)
   - [Select](#select)
   - [Sensor](#sensor)
@@ -32,6 +35,7 @@ Using MQTT discoverable devices lets us add new sensors and devices to HA withou
 - [FAQ](#faq)
   - [Using an existing MQTT client](#using-an-existing-mqtt-client)
   - [I'm having problems on 32-bit ARM](#im-having-problems-on-32-bit-arm)
+  - [I'm having problems running in systemd-Service](#im-having-problems-running-in-systemd-service)
 - [Contributing](#contributing)
 - [Users of ha-mqtt-discoverable](#users-of-ha-mqtt-discoverable)
 - [Contributors](#contributors)
@@ -44,7 +48,8 @@ Using MQTT discoverable devices lets us add new sensors and devices to HA withou
 
 ha-mqtt-discoverable runs on Python 3.10 or later.
 
-`pip install ha-mqtt-discoverable` if you want to use it in your own python scripts. `pip install ha-mqtt-discoverable-cli` to install the `hmd` utility scripts.
+`pip install ha-mqtt-discoverable` if you want to use it in your own python scripts.
+`pip install ha-mqtt-discoverable-cli` to install the `hmd` utility scripts.
 
 <!-- Please keep the entities in alphabetical order -->
 ## Supported entities
@@ -59,6 +64,7 @@ The following Home Assistant entities are currently implemented:
 - Device trigger
 - Image
 - Light
+- Lock
 - Number
 - Select
 - Sensor
@@ -131,7 +137,7 @@ my_button.write_config()
 
 ### Camera
 
-The following example creates a camera entity with a topic to a camera.
+The following example creates a camera entity with a topic for the image payload.
 
 ```py
 from ha_mqtt_discoverable import Settings
@@ -141,31 +147,27 @@ from paho.mqtt.client import Client, MQTTMessage
 # Configure the required parameters for the MQTT broker
 mqtt_settings = Settings.MQTT(host="localhost")
 
-# Information about the cover
-camera_info = CameraInfo(name="test", topic="zanzito/shared_locations/my-device")
+# Information about the camera
+camera_info = CameraInfo(name="test", topic="topic_to_publish_image_payload_to")
 
 settings = Settings(mqtt=mqtt_settings, entity=camera_info)
 
-# To receive state commands from HA, define a callback function:
-def my_callback(client: Client, user_data, message: MQTTMessage):
-    payload = message.payload.decode()
-    perform_my_custom_action()
+# Instantiate the camera
+my_camera = Camera(settings)
 
-# Instantiate the cover
-my_camera = Camera(settings, my_callback)
-
-# Set the initial state of the cover, which also makes it discoverable
-my_camera.set_topic("zanzito/shared_locations/my-device")  # not needed if already defined
+# Set the image payload of the camera
+with open("example.png", "rb") as example_file:
+    my_camera.set_payload(example_file.read())
 ```
 
-### Covers
+### Cover
 
-A cover has five possible states `open`, `closed`, `opening`, `closing` and `stopped`. Most other entities use the states as command payload, but covers differentiate on this. The HA user can either open, close or stop it in the covers current position.
+A cover has five possible states `open`, `closed`, `opening`, `closing` and `stopped`.
+Most other entities use the states as command payload, but covers differentiate on this. The HA user can either open, close or stop it in the covers current position.
 
 Covers do not currently support tilt.
 
-A `callback` function is needed in order to parse the commands sent from HA, as the following
-example shows:
+A `callback` function is needed in order to parse the commands sent from HA, as the following example shows:
 
 ```py
 from ha_mqtt_discoverable import Settings
@@ -330,8 +332,7 @@ with open("example.png", "rb") as example_file:
 ### Light
 
 The light is different from other current sensor as it needs its payload encoded/decoded as json.
-It is possible to set brightness, effects and the color of the light. Similar to a _switch_ it can
-also receive 'commands' from HA that request a state change.
+It is possible to set brightness, effects and the color of the light. Similar to a _switch_ it can also receive 'commands' from HA that request a state change.
 It is possible to act upon reception of this 'command', by defining a `callback` function, as the following example shows:
 
 ```py
@@ -391,6 +392,50 @@ my_light = Light(settings, my_callback)
 my_light.off()
 ```
 
+### Lock
+
+A lock has five possible states `locked`, `unlocked`, `locking`, `unlocking` and `jammed`.
+
+A `callback` function is needed in order to parse the commands sent from HA, as the following example shows:
+
+```py
+from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable.sensors import Lock, LockInfo
+from paho.mqtt.client import Client, MQTTMessage
+
+# Configure the required parameters for the MQTT broker
+mqtt_settings = Settings.MQTT(host="localhost")
+
+# Information about the lock
+lock_info = LockInfo(name="test")
+
+settings = Settings(mqtt=mqtt_settings, entity=lock_info)
+
+# To receive state commands from HA, define a callback function:
+def my_callback(client: Client, user_data, message: MQTTMessage):
+    payload = message.payload.decode()
+    if payload == my_lock._entity.payload_lock:
+        # let HA know that the lock is locking
+        my_lock.locking()
+        # call function to lock the lock
+        lock_my_custom_lock()
+        # Let HA know that the lock is locked now
+        my_lock.locked()
+    if payload == my_lock._entity.payload_unlock:
+        # let HA know that the lock is unlocking
+        my_lock.unlocking()
+        # call function to unlock the lock
+        unlock_my_custom_lock()
+        # Let HA know that the lock is unlocked now
+        my_lock.unlocked()
+
+# Instantiate the lock
+my_lock = Lock(settings, my_callback)
+
+# Set the initial state of the lock, which also makes it discoverable
+my_lock.locked()
+```
+
 ### Number
 
 The number entity is similar to the text entity, but for a numeric value instead of a string.
@@ -428,7 +473,7 @@ my_number.set_value(42.0)
 
 ### Select
 
-The selection entity is a list of selectable options in homeassistant.
+The selection entity is a list of selectable options in Home Assistant.
 It is possible to act upon reception of this 'command', by defining a `callback` function, as the following example shows:
 
 ```py
@@ -582,7 +627,16 @@ mqtt_settings = Settings.MQTT(client=client)
 
 ### I'm having problems on 32-bit ARM
 
-Pydantic 2 has issues on 32-bit ARM. More details are on [ha-mqtt-discoverable/pull/191](https://github.com/unixorn/ha-mqtt-discoverable/pull/191). TL;DR: If you're on an ARM32 machine you're going to have to pin to the 0.13.1 version.
+Pydantic 2 has issues on 32-bit ARM. More details are on [ha-mqtt-discoverable/pull/191](https://github.com/unixorn/ha-mqtt-discoverable/pull/191).
+TL;DR: If you're on an ARM32 machine you're going to have to pin to the 0.13.1 version.
+
+### I'm having problems running in systemd-Service
+
+Each entity creates its own thread for the MQTT-client-loop, which increases the task count.
+systemd may limit the tasks to a too low number for your needs (check with `systemctl status your.service`), which may lead to new entities failing to create a worker-thread.
+Try setting `TasksMax=` to an appropriate high number accommodating your entity count and other threads that may spawn.
+
+Alternatively [use an existing MQTT client](#using-an-existing-mqtt-client) without each entity generating their own MQTT-client-loop.
 
 ## Contributing
 
@@ -599,6 +653,8 @@ If you use this module for your own project, please add a link here.
 - [homeassistant-zodiac-tri-expert](https://github.com/andreondra/homeassistant-zodiac-tri-expert) - A Zodiac Tri Expert salt water generator integration
 
 - [homeassistant-addon-viessmann-gridbox](https://github.com/unl0ck/homeassistant-addon-viessmann-gridbox) - Get your Viessmann Gridbox Data Home Assistant integration
+
+- [yahac](https://github.com/dseichter/yahac) - Yet Another Home Assistant Client
 
 ## Contributors
 
